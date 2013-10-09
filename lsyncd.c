@@ -121,11 +121,12 @@ char * lsyncd_config_file = NULL;
 static bool first_time = true;
 
 /*
-| Set by TERM or HUP signal handler
+| Set by TERM/INT, USR1 or HUP signal handler
 | telling Lsyncd should end or reset ASAP.
 */
 volatile sig_atomic_t hup  = 0;
 volatile sig_atomic_t term = 0;
+volatile sig_atomic_t retire = 0;
 volatile sig_atomic_t sigcode = 0;
 int pidfile_fd = 0;
 
@@ -153,6 +154,11 @@ sig_handler( int sig )
 		case SIGTERM:
 		case SIGINT:
 			term = 1;
+			sigcode = sig;
+			return;
+
+		case SIGUSR1:
+			retire = 1;
 			sigcode = sig;
 			return;
 
@@ -2205,7 +2211,7 @@ masterloop(lua_State *L)
 						struct observance *obs = observances + pi;
 
 						// Checks for signals
-						if( hup || term )
+						if( hup || term || retire )
 						{
 							break;
 						}
@@ -2217,7 +2223,7 @@ masterloop(lua_State *L)
 						}
 
 						// Checks for signals, again, better safe than sorry
-						if ( hup || term )
+						if ( hup || term || retire )
 						{
 							break;
 						}
@@ -2287,6 +2293,21 @@ masterloop(lua_State *L)
 			lua_pop( L, 1 );
 
 			hup = 0;
+		}
+
+		// reacts on USR1 signals
+		if( retire == 1)
+		{
+			load_runner_func( L, "retire" );
+
+			if( lua_pcall( L, 0, 0, -2 ) )
+			{
+				exit( -1 );
+			}
+
+			lua_pop( L, 1 );
+
+			retire = 2;
 		}
 
 		// reacts on TERM and INT signals
@@ -2739,6 +2760,7 @@ main1( int argc, char *argv[] )
 		sigprocmask( SIG_BLOCK, &set, NULL );
 
 		signal( SIGHUP,  sig_handler );
+		signal( SIGUSR1, sig_handler );
 		signal( SIGTERM, sig_handler );
 		signal( SIGINT,  sig_handler );
 	}
@@ -2812,7 +2834,7 @@ main( int argc, char * argv[ ] )
 	// gets a kernel parameter
 	clocks_per_sec = sysconf( _SC_CLK_TCK );
 
-	while( !term ) {
+	while( !term && !retire ) {
 		main1( argc, argv );
 	}
 
