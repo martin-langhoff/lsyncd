@@ -145,6 +145,8 @@ sig_child(int sig) {
 
 /**
  * signal handler
+ * once INT/TERM are received, ignore/reset other sigs
+ * once USR1 received, ignore/reset HUP
  */
 void
 sig_handler( int sig )
@@ -154,16 +156,23 @@ sig_handler( int sig )
 		case SIGTERM:
 		case SIGINT:
 			term = 1;
+			retire = 0;
+			hup = 0;
 			sigcode = sig;
 			return;
-
 		case SIGUSR1:
-			retire = 1;
-			sigcode = sig;
+			if ( !term )
+			{
+				retire = 1;
+				hup = 0;
+				sigcode = sig;
+			}
 			return;
-
 		case SIGHUP:
-			hup = 1;
+			if ( !term && !retire )
+			{
+				hup = 1;
+			}
 			return;
 	}
 }
